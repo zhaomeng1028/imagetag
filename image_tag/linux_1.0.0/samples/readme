@@ -1,0 +1,7 @@
+1. 修改ImageTaggingInterface.java文件中的libImageTagging.so库的加载路径以及模型文件所在目录
+
+2. 修改ImageTaggingService.java文件中的相应文件路径
+
+3. 在ImageTaggingInterface.java中调用即可
+
+4. ImageTaggingJNI.java文件和ImageTagScore.java一定要放在com/xiaomi/micloud/imagetagginglib/路径中
