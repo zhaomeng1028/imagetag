@@ -10,6 +10,9 @@
 
 #include <BufferFile.h>
 #include <mxnet/c_predict_api.h>
+#include "exif.h"
+#include <iostream>
+#include <fstream>
 
 int debug=0;
 
@@ -156,6 +159,32 @@ static int checkImageFormat(const unsigned char *imFileBuf, int nBufSize)
   return nFormat;
 }
 
+cv::Mat rotateImage(cv::Mat img, int degree)
+{
+    degree = -degree;
+    double angle = degree  * CV_PI / 180.; //   
+    double a = sin(angle), b = cos(angle);
+    int width = img.cols;
+    int height = img.rows;
+    int width_rotate = int(height * fabs(a) + width * fabs(b));
+    int height_rotate = int(width * fabs(a) + height * fabs(b));
+    //
+    // [ m0  m1  m2 ] ===>  [ A11  A12   b1 ]
+    // [ m3  m4  m5 ] ===>  [ A21  A22   b2 ]
+    float map[6];
+    cv::Mat map_matrix = cv::Mat(2, 3, CV_32F, map);
+    //
+    CvPoint2D32f center = cvPoint2D32f(width / 2, height / 2);
+    CvMat map_matrix2 = map_matrix;
+    cv2DRotationMatrix(center, degree, 1.0, &map_matrix2);
+    map[2] += (width_rotate - width) / 2;
+    map[5] += (height_rotate - height) / 2;
+    cv::Mat img_rotate;
+    
+    warpAffine(img, img_rotate, map_matrix, cv::Size(width_rotate, height_rotate), 1, 0, 0);
+    return img_rotate;
+}
+
 int ImageTaggingAPI::GetTags(const unsigned char *jpg_file_buffer, 
                              long buffer_size, 
                              std::vector<ImageTagScore>* result)
@@ -166,14 +195,44 @@ int ImageTaggingAPI::GetTags(const unsigned char *jpg_file_buffer,
     {
         jpg_data.push_back(jpg_file_buffer[i]);
     }
-
+   
+    // get exif info 
+    Cexif loadExif;
+    const char* file_name = "exif_log.txt";
+    std::ofstream out_log(file_name);
+    int nOrientation = 0;
+    bool isLoad = loadExif.DecodeExif(jpg_file_buffer,buffer_size,out_log);
+    if (!isLoad ){
+        fprintf(stderr,"Can not load exif.\n");
+    }
+    else{
+        EXIFINFO *exif = loadExif.m_exifinfo;
+        nOrientation = exif->Orientation;
+    }
+    
+    // decode image and check null
     cv::Mat im = cv::imdecode(cv::Mat(jpg_data), cv::IMREAD_COLOR);
-
     if (im.empty()){
         fprintf(stderr,"Can not load image.\n");
         return -1;
     }
 
+    // rotate image   
+    int degree = 0;
+    cv::Mat rotate_im;
+    if (nOrientation == 6 || nOrientation == 5){
+      degree = 90;
+    }
+    else if( nOrientation == 3 || nOrientation == 4){
+      degree = 180;
+    }
+    else if( nOrientation == 8 || nOrientation == 7){
+      degree = 270;
+    }
+
+    rotate_im = rotateImage(im,degree);
+    im = rotate_im;
+ 
     // Just a big enough memory 1000x1000x3
     int image_size = width*height*channels;
     std::vector<mx_float> image_data = std::vector<mx_float>(image_size);
